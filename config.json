@@ -9,15 +9,39 @@
   "mappings": [
     {
       "name": "Open Notepad (Index Finger)",
-      "gesture": [false, true, false, false, false],
+      "gesture": [
+        false,
+        true,
+        false,
+        false,
+        false
+      ],
       "action_type": "executable",
       "path": "notepad.exe"
     },
     {
       "name": "Open Calculator (Index + Middle)",
-      "gesture": [false, true, true, false, false],
+      "gesture": [
+        false,
+        true,
+        true,
+        false,
+        false
+      ],
       "action_type": "executable",
       "path": "calc.exe"
+    },
+    {
+      "name": "Open brave",
+      "gesture": [
+        false,
+        false,
+        false,
+        false,
+        true
+      ],
+      "action_type": "executable",
+      "path": "C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe"
     }
   ]
 }

@@ -34,7 +34,16 @@ class GestureEngine:
         # Live data shared with the GUI
         self.latest_frame = None
         self.latest_landmarks = None
-        self.current_gesture = [False, False, False, False, False]
+        self.current_gesture = {
+            "type": "fingers",
+            "fingers": [False, False, False, False, False],
+            "pinches": {
+                "index": False,
+                "middle": False,
+                "ring": False,
+                "pinky": False
+            }
+        }
         self.detected_handedness = "Right"
 
         # Action execution states
@@ -119,9 +128,18 @@ class GestureEngine:
 
     def classify_gesture(self, landmarks, handedness):
         """
-        Classifies current hand landmarks into a 5-element boolean array:
-        [Thumb, Index, Middle, Ring, Pinky]
-        True = Extended/Open, False = Folded/Closed
+        Classifies current hand landmarks into extended fingers and pinches.
+        Returns a dictionary:
+        {
+            "type": "fingers" or "pinch",
+            "fingers": [Thumb, Index, Middle, Ring, Pinky] (boolean array),
+            "pinches": {
+                "index": bool,
+                "middle": bool,
+                "ring": bool,
+                "pinky": bool
+            }
+        }
         """
         # Wrist (0)
         wrist = landmarks.landmark[0]
@@ -138,16 +156,49 @@ class GestureEngine:
         pinky_open = landmarks.landmark[20].y < landmarks.landmark[18].y
 
         # Thumb logic: rotation and scale-invariant heuristic
-        # If the thumb is extended, the tip (4) is far from the Index MCP (5).
-        # We compare distance(thumb_tip, index_mcp) with distance(thumb_ip, index_mcp).
-        # When folded, the tip goes closer to index_mcp than the IP joint.
         thumb_tip = landmarks.landmark[4]
         thumb_ip = landmarks.landmark[3]
         index_mcp = landmarks.landmark[5]
         
         thumb_open = self.calculate_distance(thumb_tip, index_mcp) > self.calculate_distance(thumb_ip, index_mcp)
 
-        return [thumb_open, index_open, middle_open, ring_open, pinky_open]
+        # Scale-invariant reference distance (Wrist to Middle MCP 9)
+        middle_mcp = landmarks.landmark[9]
+        ref_dist = self.calculate_distance(wrist, middle_mcp)
+        if ref_dist == 0:
+            ref_dist = 0.001 # prevent division by zero
+
+        # Pinch detection (Thumb Tip 4 to other finger tips)
+        index_tip = landmarks.landmark[8]
+        middle_tip = landmarks.landmark[12]
+        ring_tip = landmarks.landmark[16]
+        pinky_tip = landmarks.landmark[20]
+
+        d_index = self.calculate_distance(thumb_tip, index_tip) / ref_dist
+        d_middle = self.calculate_distance(thumb_tip, middle_tip) / ref_dist
+        d_ring = self.calculate_distance(thumb_tip, ring_tip) / ref_dist
+        d_pinky = self.calculate_distance(thumb_tip, pinky_tip) / ref_dist
+
+        pinches = {
+            "index": d_index < 0.15,
+            "middle": d_middle < 0.15,
+            "ring": d_ring < 0.15,
+            "pinky": d_pinky < 0.15
+        }
+
+        # Determine overall gesture type
+        gesture_type = "fingers"
+        # If any pinch is active, classify as pinch type
+        for key, active in pinches.items():
+            if active:
+                gesture_type = "pinch"
+                break
+
+        return {
+            "type": gesture_type,
+            "fingers": [thumb_open, index_open, middle_open, ring_open, pinky_open],
+            "pinches": pinches
+        }
 
     def execute_action(self, mapping):
         path = mapping.get("path")
@@ -180,14 +231,38 @@ class GestureEngine:
         # Find if the gesture matches any mapped gesture
         matched_mapping = None
         for mapping in self.mappings:
-            if mapping.get("gesture") == current_gesture:
-                matched_mapping = mapping
-                break
+            target_gesture = mapping.get("gesture")
+            
+            # Backwards compatibility check
+            if isinstance(target_gesture, list):
+                if current_gesture["fingers"] == target_gesture:
+                    matched_mapping = mapping
+                    break
+            elif isinstance(target_gesture, dict):
+                m_type = target_gesture.get("type", "fingers")
+                m_data = target_gesture.get("data")
+                
+                if m_type == "fingers":
+                    if current_gesture["fingers"] == m_data:
+                        matched_mapping = mapping
+                        break
+                elif m_type == "pinch":
+                    if current_gesture["pinches"].get(m_data) is True:
+                        matched_mapping = mapping
+                        break
+
+        # Generate a unique key for the active gesture state for debouncing
+        gesture_key = ""
+        if current_gesture["type"] == "pinch":
+            active_pinches = [k for k, v in current_gesture["pinches"].items() if v]
+            gesture_key = "pinch_" + "_".join(active_pinches)
+        else:
+            gesture_key = "fingers_" + "_".join(map(str, current_gesture["fingers"]))
 
         if matched_mapping:
             # If it's a new gesture, start timer
-            if self.last_detected_gesture != tuple(current_gesture):
-                self.last_detected_gesture = tuple(current_gesture)
+            if self.last_detected_gesture != gesture_key:
+                self.last_detected_gesture = gesture_key
                 self.gesture_start_time = time.time()
                 self.action_executed = False
             else:
@@ -282,7 +357,16 @@ class GestureEngine:
                 # Store the frame and tracking details for the GUI
                 with self.lock:
                     self.latest_frame = frame
-                    self.current_gesture = detected_gesture if detected_gesture else [False, False, False, False, False]
+                    self.current_gesture = detected_gesture if detected_gesture else {
+                        "type": "fingers",
+                        "fingers": [False, False, False, False, False],
+                        "pinches": {
+                            "index": False,
+                            "middle": False,
+                            "ring": False,
+                            "pinky": False
+                        }
+                    }
                     self.detected_handedness = handedness_label
 
                 # Limit thread loop speed (approx. 30 FPS)

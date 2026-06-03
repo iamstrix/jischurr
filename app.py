@@ -214,19 +214,39 @@ class App(ctk.CTk):
             path_lbl.grid(row=1, column=0, sticky="w")
 
             # Center: Gesture visualization indicator
-            gesture = mapping.get("gesture", [False]*5)
+            gesture = mapping.get("gesture")
             gesture_text = ""
-            for i, finger in enumerate(["T", "I", "M", "R", "P"]):
-                if gesture[i]:
-                    gesture_text += f"[{finger}] "
-                else:
-                    gesture_text += f" _  "
+            text_color = "#10b981" # default green
+            
+            # Backwards compatibility check
+            if isinstance(gesture, list):
+                # old 5-boolean format
+                for i, finger in enumerate(["T", "I", "M", "R", "P"]):
+                    if i < len(gesture) and gesture[i]:
+                        gesture_text += f"[{finger}] "
+                    else:
+                        gesture_text += f" _  "
+            elif isinstance(gesture, dict):
+                g_type = gesture.get("type", "fingers")
+                g_data = gesture.get("data")
+                if g_type == "fingers":
+                    for i, finger in enumerate(["T", "I", "M", "R", "P"]):
+                        if i < len(g_data) and g_data[i]:
+                            gesture_text += f"[{finger}] "
+                        else:
+                            gesture_text += f" _  "
+                elif g_type == "pinch":
+                    finger_name = str(g_data).capitalize()
+                    gesture_text = f"PINCH {finger_name.upper()}"
+                    text_color = "#f59e0b" # Orange for pinch
+            else:
+                gesture_text = "UNKNOWN"
             
             gesture_lbl = ctk.CTkLabel(
                 row_frame, 
                 text=gesture_text.strip(),
-                font=ctk.CTkFont(family="Courier", size=12, weight="bold"),
-                text_color="#10b981"
+                font=ctk.CTkFont(family="Arial" if "PINCH" in gesture_text else "Courier", size=12, weight="bold"),
+                text_color=text_color
             )
             gesture_lbl.grid(row=0, column=1, padx=10)
 
@@ -323,13 +343,36 @@ class App(ctk.CTk):
         # 3. Update hand finger indicators
         if verbose:
             print(f"[TELEMETRY-GUI] update_loop (tick {self.update_count}): Updating finger indicators: {current_gesture}")
-        for idx, is_open in enumerate(current_gesture):
-            if not is_monitoring:
+
+        if not is_monitoring:
+            for idx in range(5):
                 self.indicators[idx].configure(fg_color="#374151", text_color="#9ca3af")
-            elif is_open:
-                self.indicators[idx].configure(fg_color="#10b981", text_color="#ffffff")  # Green for active
+        else:
+            g_type = current_gesture.get("type", "fingers") if isinstance(current_gesture, dict) else "fingers"
+            if g_type == "pinch" and isinstance(current_gesture, dict):
+                pinches = current_gesture.get("pinches", {})
+                active_pinch_finger = None
+                for key, val in pinches.items():
+                    if val:
+                        active_pinch_finger = key
+                        break
+                
+                finger_indices = {"thumb": 0, "index": 1, "middle": 2, "ring": 3, "pinky": 4}
+                for idx in range(5):
+                    if idx == 0:  # Thumb is always involved in a pinch
+                        self.indicators[idx].configure(fg_color="#f59e0b", text_color="#ffffff")  # Orange
+                    elif active_pinch_finger and idx == finger_indices.get(active_pinch_finger):
+                        self.indicators[idx].configure(fg_color="#f59e0b", text_color="#ffffff")  # Orange
+                    else:
+                        self.indicators[idx].configure(fg_color="#374151", text_color="#9ca3af")  # Gray
             else:
-                self.indicators[idx].configure(fg_color="#ef4444", text_color="#ffffff")  # Red for inactive
+                # Normal finger extensions
+                fingers_state = current_gesture.get("fingers", [False]*5) if isinstance(current_gesture, dict) else current_gesture
+                for idx, is_open in enumerate(fingers_state):
+                    if is_open:
+                        self.indicators[idx].configure(fg_color="#10b981", text_color="#ffffff")  # Green
+                    else:
+                        self.indicators[idx].configure(fg_color="#ef4444", text_color="#ffffff")  # Red
 
         if verbose:
             print(f"[TELEMETRY-GUI] update_loop (tick {self.update_count}): Scheduling next tick")
@@ -444,7 +487,7 @@ class MappingDialog(ctk.CTkToplevel):
         
         self.callback = callback
         self.title("Add Gesture Action")
-        self.geometry("450x480")
+        self.geometry("450x520")
         self.resizable(False, False)
         
         # Keep window on top
@@ -485,11 +528,28 @@ class MappingDialog(ctk.CTkToplevel):
         self.browse_btn.grid(row=0, column=1, padx=(10, 0))
 
         # --- GESTURE SELECTOR ---
-        self.gesture_lbl = ctk.CTkLabel(self, text="Gesture Definition (Select Extended Fingers)", font=ctk.CTkFont(size=12, weight="bold"))
+        self.gesture_lbl = ctk.CTkLabel(self, text="Gesture Definition", font=ctk.CTkFont(size=12, weight="bold"))
         self.gesture_lbl.grid(row=5, column=0, padx=20, pady=(5, 5), sticky="w")
 
-        self.checkbox_frame = ctk.CTkFrame(self, fg_color="#1e1e24", corner_radius=8, width=410)
-        self.checkbox_frame.grid(row=6, column=0, padx=20, pady=(0, 20), sticky="ew")
+        self.gesture_type_var = tk.StringVar(value="Fingers Extended")
+        self.segmented_btn = ctk.CTkSegmentedButton(
+            self,
+            values=["Fingers Extended", "Pinch Gesture"],
+            variable=self.gesture_type_var,
+            command=self.toggle_gesture_type,
+            width=410
+        )
+        self.segmented_btn.grid(row=6, column=0, padx=20, pady=(0, 10), sticky="w")
+
+        # Options Container Frame
+        self.options_container = ctk.CTkFrame(self, fg_color="transparent", width=410, height=80)
+        self.options_container.grid(row=7, column=0, padx=20, pady=(0, 15), sticky="ew")
+        self.options_container.grid_columnconfigure(0, weight=1)
+        self.options_container.grid_propagate(False)
+
+        # Fingers Checklist Panel
+        self.checkbox_frame = ctk.CTkFrame(self.options_container, fg_color="#1e1e24", corner_radius=8)
+        self.checkbox_frame.grid(row=0, column=0, sticky="nsew")
         self.checkbox_frame.grid_columnconfigure((0, 1, 2, 3, 4), weight=1)
 
         self.finger_vars = []
@@ -497,12 +557,27 @@ class MappingDialog(ctk.CTkToplevel):
         for i, label in enumerate(finger_labels):
             var = tk.BooleanVar(value=False)
             chk = ctk.CTkCheckBox(self.checkbox_frame, text=label, variable=var, font=ctk.CTkFont(size=11))
-            chk.grid(row=0, column=i, padx=5, pady=15)
+            chk.grid(row=0, column=i, padx=5, pady=25)
             self.finger_vars.append(var)
+
+        # Pinch Selector Panel (Hidden initially)
+        self.pinch_frame = ctk.CTkFrame(self.options_container, fg_color="#1e1e24", corner_radius=8)
+        self.pinch_lbl = ctk.CTkLabel(self.pinch_frame, text="Select finger to pinch with Thumb:", font=ctk.CTkFont(size=11, weight="bold"))
+        self.pinch_lbl.grid(row=0, column=0, padx=15, pady=(15, 2), sticky="w")
+
+        self.pinch_finger_var = tk.StringVar(value="Index")
+        self.pinch_menu = ctk.CTkOptionMenu(
+            self.pinch_frame,
+            values=["Index", "Middle", "Ring", "Pinky"],
+            variable=self.pinch_finger_var,
+            width=380
+        )
+        self.pinch_menu.grid(row=1, column=0, padx=15, pady=(0, 15), sticky="ew")
+        self.pinch_frame.grid_columnconfigure(0, weight=1)
 
         # --- BUTTONS ---
         self.btn_frame = ctk.CTkFrame(self, fg_color="transparent")
-        self.btn_frame.grid(row=7, column=0, padx=20, pady=(10, 20), sticky="e")
+        self.btn_frame.grid(row=8, column=0, padx=20, pady=(10, 20), sticky="e")
 
         self.cancel_btn = ctk.CTkButton(
             self.btn_frame, 
@@ -522,6 +597,14 @@ class MappingDialog(ctk.CTkToplevel):
         )
         self.save_btn.grid(row=0, column=1)
 
+    def toggle_gesture_type(self, val):
+        if val == "Fingers Extended":
+            self.pinch_frame.grid_forget()
+            self.checkbox_frame.grid(row=0, column=0, sticky="nsew")
+        else:
+            self.checkbox_frame.grid_forget()
+            self.pinch_frame.grid(row=0, column=0, sticky="nsew")
+
     def browse_file(self):
         file_path = filedialog.askopenfilename(
             title="Select Program Executable or File",
@@ -536,7 +619,7 @@ class MappingDialog(ctk.CTkToplevel):
     def save_action(self):
         name = self.name_entry.get().strip()
         path = self.path_entry.get().strip()
-        gesture = [var.get() for var in self.finger_vars]
+        g_type = self.gesture_type_var.get()
 
         if not name:
             messagebox.showerror("Error", "Please enter a name for the action.")
@@ -544,13 +627,28 @@ class MappingDialog(ctk.CTkToplevel):
         if not path:
             messagebox.showerror("Error", "Please provide a valid file/program path.")
             return
-        if not any(gesture):
-            messagebox.showerror("Error", "Please select at least one extended finger for the gesture.")
-            return
+
+        gesture_config = {}
+        if g_type == "Fingers Extended":
+            gesture = [var.get() for var in self.finger_vars]
+            if not any(gesture):
+                messagebox.showerror("Error", "Please select at least one extended finger for the gesture.")
+                return
+            gesture_config = {
+                "type": "fingers",
+                "data": gesture
+            }
+        else:
+            # Pinch Gesture
+            pinch_finger = self.pinch_finger_var.get().lower()
+            gesture_config = {
+                "type": "pinch",
+                "data": pinch_finger
+            }
 
         new_mapping = {
             "name": name,
-            "gesture": gesture,
+            "gesture": gesture_config,
             "action_type": "executable",
             "path": path
         }
