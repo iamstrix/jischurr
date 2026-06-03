@@ -25,7 +25,7 @@ class GestureEngine:
         )
 
         # Threading and camera control
-        self.lock = threading.Lock()
+        self.lock = threading.RLock()
         self.running = False
         self.camera_active = False
         self.thread = None
@@ -61,7 +61,7 @@ class GestureEngine:
                 self.mappings = []
                 self.save_config()
         except Exception as e:
-            print(f"Error loading config: {e}")
+            print(f"[TELEMETRY-ENGINE] Error loading config: {e}")
 
     def save_config(self):
         try:
@@ -72,35 +72,47 @@ class GestureEngine:
             with open(self.config_path, 'w') as f:
                 json.dump(config, f, indent=2)
         except Exception as e:
-            print(f"Error saving config: {e}")
+            print(f"[TELEMETRY-ENGINE] Error saving config: {e}")
 
     def start(self):
+        print("[TELEMETRY-ENGINE] start() called")
         with self.lock:
             if not self.running:
                 self.running = True
                 self.thread = threading.Thread(target=self._run_loop, daemon=True)
                 self.thread.start()
+                print("[TELEMETRY-ENGINE] Background thread spawned")
 
     def stop(self):
+        print("[TELEMETRY-ENGINE] stop() called")
         with self.lock:
             self.running = False
         if self.thread:
+            print("[TELEMETRY-ENGINE] Joining background thread...")
             self.thread.join(timeout=1.0)
+            print("[TELEMETRY-ENGINE] Background thread joined or timed out")
         self._release_camera()
 
     def set_camera_active(self, active):
         with self.lock:
-            self.camera_active = active
-            if not active:
-                self._release_camera()
+            if self.camera_active != active:
+                print(f"[TELEMETRY-ENGINE] set_camera_active: changing state from {self.camera_active} to {active}")
+                self.camera_active = active
 
     def _release_camera(self):
-        if self.cap:
+        # We release the camera and clear references.
+        # This is safe to run inside a lock since lock is now an RLock.
+        if self.cap is not None:
+            print("[TELEMETRY-ENGINE] _release_camera: Releasing cv2.VideoCapture...")
+            t0 = time.perf_counter()
             self.cap.release()
             self.cap = None
+            print(f"[TELEMETRY-ENGINE] _release_camera: Camera released in {time.perf_counter()-t0:.6f}s")
         with self.lock:
-            self.latest_frame = None
-            self.latest_landmarks = None
+            if self.latest_frame is not None or self.latest_landmarks is not None:
+                print("[TELEMETRY-ENGINE] _release_camera: Clearing latest frame/landmarks")
+                self.latest_frame = None
+                self.latest_landmarks = None
 
     def calculate_distance(self, p1, p2):
         return np.sqrt((p1.x - p2.x)**2 + (p1.y - p2.y)**2 + (p1.z - p2.z)**2)
@@ -194,27 +206,40 @@ class GestureEngine:
         """
         Background thread camera capture and MediaPipe processing.
         """
+        print("[TELEMETRY-ENGINE] _run_loop: Thread loop started")
+        loop_count = 0
         while True:
+            loop_count += 1
             # Thread-safe check for running status
             with self.lock:
                 if not self.running:
+                    print(f"[TELEMETRY-ENGINE] _run_loop: stop signal received after {loop_count} ticks")
                     break
                 active = self.camera_active
 
             if not active:
-                self._release_camera()
+                if self.cap is not None or self.latest_frame is not None:
+                    print(f"[TELEMETRY-ENGINE] _run_loop (tick {loop_count}): Camera is inactive, releasing...")
+                    self._release_camera()
                 time.sleep(0.1)
                 continue
 
             # Initialize camera if not open
             if self.cap is None:
+                print(f"[TELEMETRY-ENGINE] _run_loop (tick {loop_count}): Initializing cv2.VideoCapture(0, cv2.CAP_DSHOW)...")
+                t0 = time.perf_counter()
                 self.cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)  # CAP_DSHOW is faster on Windows
                 self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
                 self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+                print(f"[TELEMETRY-ENGINE] _run_loop (tick {loop_count}): Camera initialized in {time.perf_counter()-t0:.6f}s")
 
+            if loop_count % 30 == 0:
+                print(f"[TELEMETRY-ENGINE] _run_loop (tick {loop_count}): Reading camera frame")
+
+            t_read_start = time.perf_counter()
             success, frame = self.cap.read()
             if not success:
-                print("Failed to capture frame from webcam.")
+                print(f"[TELEMETRY-ENGINE] _run_loop (tick {loop_count}): Failed to capture frame from webcam. Read took {time.perf_counter()-t_read_start:.6f}s")
                 time.sleep(0.1)
                 continue
 
@@ -224,12 +249,20 @@ class GestureEngine:
 
             # Convert BGR to RGB for MediaPipe
             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            
+            t_process_start = time.perf_counter()
             results = self.hands.process(rgb_frame)
+            t_process_end = time.perf_counter()
+
+            if loop_count % 30 == 0:
+                print(f"[TELEMETRY-ENGINE] _run_loop (tick {loop_count}): MediaPipe process took {t_process_end-t_process_start:.6f}s")
 
             detected_gesture = None
             handedness_label = "Right"
 
             if results.multi_hand_landmarks:
+                if loop_count % 30 == 0:
+                    print(f"[TELEMETRY-ENGINE] _run_loop (tick {loop_count}): Hand detected!")
                 for hand_landmarks, hand_class in zip(results.multi_hand_landmarks, results.multi_handedness):
                     handedness_label = hand_class.classification[0].label
                     
@@ -244,8 +277,6 @@ class GestureEngine:
                     
                     # Classify the gesture
                     detected_gesture = self.classify_gesture(hand_landmarks, handedness_label)
-                    
-                    # We process only the first detected hand for actions
                     break
 
             # Handle triggers and debouncing
@@ -261,3 +292,4 @@ class GestureEngine:
             time.sleep(0.033)
 
         self._release_camera()
+        print("[TELEMETRY-ENGINE] _run_loop: Background thread loop exited")

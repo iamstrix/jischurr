@@ -18,6 +18,7 @@ class App(ctk.CTk):
     def __init__(self):
         super().__init__()
 
+        print("[TELEMETRY-GUI] App initialization started")
         # Window settings
         self.title("Jischurr - Gesture Launcher")
         self.geometry("1000x650")
@@ -28,29 +29,32 @@ class App(ctk.CTk):
 
         # Thread-safe global hotkey state
         self.hotkey_pressed = False
+        self.update_count = 0
 
         # Build UI layout first so the window renders immediately
         self.setup_layout()
 
         # Force the window to render before starting background threads
+        print("[TELEMETRY-GUI] Forcing layout render via update_idletasks")
         self.update_idletasks()
 
         # Defer engine and listener startup to after the window is visible
+        print("[TELEMETRY-GUI] Scheduling background services startup in 100ms")
         self.after(100, self._start_background_services)
 
     def _start_background_services(self):
         """Start engine and keyboard listener after the window is visible."""
-        # Start the gesture engine background thread
+        print("[TELEMETRY-GUI] _start_background_services: Starting gesture engine")
         self.engine.start()
 
-        # Start pynput keyboard listener
+        print("[TELEMETRY-GUI] _start_background_services: Starting pynput keyboard listener")
         self.listener = keyboard_pynput.Listener(
             on_press=self.on_key_press,
             on_release=self.on_key_release
         )
         self.listener.start()
 
-        # Start the GUI update loop
+        print("[TELEMETRY-GUI] _start_background_services: Initiating update_loop")
         self.update_loop()
 
     def setup_layout(self):
@@ -253,20 +257,43 @@ class App(ctk.CTk):
         self.render_mappings()
 
     def update_loop(self):
+        self.update_count += 1
+        verbose = (self.update_count <= 15 or self.update_count % 30 == 0)
+
+        if verbose:
+            print(f"[TELEMETRY-GUI] update_loop: tick {self.update_count}, hotkey_pressed={self.hotkey_pressed}")
+
         # 1. Check hotkey state to activate/deactivate camera stream
         hotkey = self.engine.settings.get("hotkey", "caps lock")
         is_active = self.hotkey_pressed
+        
+        if verbose:
+            print(f"[TELEMETRY-GUI] update_loop (tick {self.update_count}): Calling set_camera_active({is_active})")
         self.engine.set_camera_active(is_active)
 
         # 2. Update camera frame in the GUI
         frame = None
+        current_gesture = [False, False, False, False, False]
+        is_monitoring = False
+
+        if verbose:
+            print(f"[TELEMETRY-GUI] update_loop (tick {self.update_count}): Acquiring engine lock...")
+        
+        t0 = time.perf_counter()
         with self.engine.lock:
+            lock_time = time.perf_counter() - t0
+            if verbose:
+                print(f"[TELEMETRY-GUI] update_loop (tick {self.update_count}): Lock acquired in {lock_time:.6f}s")
+            
             if self.engine.latest_frame is not None:
                 frame = self.engine.latest_frame.copy()
             current_gesture = self.engine.current_gesture
             is_monitoring = self.engine.camera_active
 
         if is_monitoring and frame is not None:
+            if verbose:
+                print(f"[TELEMETRY-GUI] update_loop (tick {self.update_count}): Camera active, rendering frame...")
+            t_render = time.perf_counter()
             # Resize frame to fit camera label (approx. 540x405 to keep 4:3 aspect ratio)
             frame_resized = cv2.resize(frame, (540, 405))
             # Convert BGR (OpenCV) to RGB (Tkinter/PIL)
@@ -276,7 +303,11 @@ class App(ctk.CTk):
             
             self.camera_label.configure(image=img, text="")
             self.camera_label.image = img  # keep reference
+            if verbose:
+                print(f"[TELEMETRY-GUI] update_loop (tick {self.update_count}): Frame render took {time.perf_counter()-t_render:.6f}s")
         else:
+            if verbose:
+                print(f"[TELEMETRY-GUI] update_loop (tick {self.update_count}): Camera idle, rendering placeholder")
             # Display Idle screen
             self.camera_label.configure(
                 image=None, 
@@ -286,6 +317,8 @@ class App(ctk.CTk):
             )
 
         # 3. Update hand finger indicators
+        if verbose:
+            print(f"[TELEMETRY-GUI] update_loop (tick {self.update_count}): Updating finger indicators: {current_gesture}")
         for idx, is_open in enumerate(current_gesture):
             if not is_monitoring:
                 self.indicators[idx].configure(fg_color="#374151", text_color="#9ca3af")
@@ -294,16 +327,22 @@ class App(ctk.CTk):
             else:
                 self.indicators[idx].configure(fg_color="#ef4444", text_color="#ffffff")  # Red for inactive
 
+        if verbose:
+            print(f"[TELEMETRY-GUI] update_loop (tick {self.update_count}): Scheduling next tick")
         # Schedule next update tick (approx 30 FPS)
         self.after(33, self.update_loop)
 
     def on_key_press(self, key):
+        print(f"[TELEMETRY-GUI] Keyboard Press Detected: {key}")
         if self._is_hotkey(key):
             self.hotkey_pressed = True
+            print(f"[TELEMETRY-GUI] Hotkey Pressed! Setting hotkey_pressed = {self.hotkey_pressed}")
 
     def on_key_release(self, key):
+        print(f"[TELEMETRY-GUI] Keyboard Release Detected: {key}")
         if self._is_hotkey(key):
             self.hotkey_pressed = False
+            print(f"[TELEMETRY-GUI] Hotkey Released! Setting hotkey_pressed = {self.hotkey_pressed}")
 
     def _is_hotkey(self, key):
         hotkey_str = self.engine.settings.get("hotkey", "caps lock").lower().strip()
