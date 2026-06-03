@@ -41,7 +41,8 @@ class GestureEngine:
                 "index": False,
                 "middle": False,
                 "ring": False,
-                "pinky": False
+                "pinky": False,
+                "full_hand_semi_pinch": False
             }
         }
         self.detected_handedness = "Right"
@@ -179,11 +180,15 @@ class GestureEngine:
         d_ring = self.calculate_distance(thumb_tip, ring_tip) / ref_dist
         d_pinky = self.calculate_distance(thumb_tip, pinky_tip) / ref_dist
 
+        # Full-hand semi-pinch (claw shape): all fingers close to the thumb (under 0.32)
+        is_full_hand_semi_pinch = (d_index < 0.32 and d_middle < 0.32 and d_ring < 0.32 and d_pinky < 0.32)
+
         pinches = {
             "index": d_index < 0.15,
             "middle": d_middle < 0.15,
             "ring": d_ring < 0.15,
-            "pinky": d_pinky < 0.15
+            "pinky": d_pinky < 0.15,
+            "full_hand_semi_pinch": is_full_hand_semi_pinch
         }
 
         # Determine overall gesture type
@@ -201,6 +206,7 @@ class GestureEngine:
         }
 
     def execute_action(self, mapping):
+        action_type = mapping.get("action_type", "executable")
         path = mapping.get("path")
         if not path:
             return
@@ -208,6 +214,55 @@ class GestureEngine:
         action_name = mapping.get("name", "Action")
         print(f"Executing: {action_name} ({path})")
         
+        if action_type == "shortcut":
+            try:
+                from pynput.keyboard import Controller as KController, Key as KKey
+                keyboard = KController()
+                
+                parts = [p.strip().lower() for p in path.split("+")]
+                modifiers = []
+                key_to_press = None
+                
+                key_map = {
+                    "win": KKey.cmd,
+                    "cmd": KKey.cmd,
+                    "ctrl": KKey.ctrl,
+                    "control": KKey.ctrl,
+                    "alt": KKey.alt,
+                    "shift": KKey.shift,
+                    "tab": KKey.tab,
+                    "space": KKey.space,
+                    "enter": KKey.enter,
+                    "esc": KKey.esc,
+                    "escape": KKey.esc,
+                    "backspace": KKey.backspace,
+                    "delete": KKey.delete,
+                }
+                
+                for part in parts:
+                    if part in ["win", "cmd", "ctrl", "control", "alt", "shift"]:
+                        modifiers.append(key_map[part])
+                    else:
+                        if part in key_map:
+                            key_to_press = key_map[part]
+                        elif len(part) == 1:
+                            key_to_press = part
+                
+                if key_to_press:
+                    def press_with_modifiers(mods, key):
+                        if not mods:
+                            keyboard.press(key)
+                            keyboard.release(key)
+                        else:
+                            with keyboard.pressed(mods[0]):
+                                press_with_modifiers(mods[1:], key)
+                    
+                    print(f"[TELEMETRY-ENGINE] Simulating keyboard shortcut: {path}")
+                    press_with_modifiers(modifiers, key_to_press)
+            except Exception as e:
+                print(f"[TELEMETRY-ENGINE] Failed to simulate keyboard shortcut: {e}")
+            return
+
         try:
             # os.startfile is Windows specific and handles executables, paths, files, and URLs cleanly
             os.startfile(path)
@@ -364,7 +419,8 @@ class GestureEngine:
                             "index": False,
                             "middle": False,
                             "ring": False,
-                            "pinky": False
+                            "pinky": False,
+                            "full_hand_semi_pinch": False
                         }
                     }
                     self.detected_handedness = handedness_label

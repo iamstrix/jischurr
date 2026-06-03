@@ -236,8 +236,11 @@ class App(ctk.CTk):
                         else:
                             gesture_text += f" _  "
                 elif g_type == "pinch":
-                    finger_name = str(g_data).capitalize()
-                    gesture_text = f"PINCH {finger_name.upper()}"
+                    if g_data == "full_hand_semi_pinch":
+                        gesture_text = "FULL-HAND SEMI-PINCH"
+                    else:
+                        finger_name = str(g_data).capitalize()
+                        gesture_text = f"PINCH {finger_name.upper()}"
                     text_color = "#f59e0b" # Orange for pinch
             else:
                 gesture_text = "UNKNOWN"
@@ -359,7 +362,9 @@ class App(ctk.CTk):
                 
                 finger_indices = {"thumb": 0, "index": 1, "middle": 2, "ring": 3, "pinky": 4}
                 for idx in range(5):
-                    if idx == 0:  # Thumb is always involved in a pinch
+                    if active_pinch_finger == "full_hand_semi_pinch":
+                        self.indicators[idx].configure(fg_color="#f59e0b", text_color="#ffffff")  # All Orange
+                    elif idx == 0:  # Thumb is always involved in a standard pinch
                         self.indicators[idx].configure(fg_color="#f59e0b", text_color="#ffffff")  # Orange
                     elif active_pinch_finger and idx == finger_indices.get(active_pinch_finger):
                         self.indicators[idx].configure(fg_color="#f59e0b", text_color="#ffffff")  # Orange
@@ -568,7 +573,7 @@ class MappingDialog(ctk.CTkToplevel):
         self.pinch_finger_var = tk.StringVar(value="Index")
         self.pinch_menu = ctk.CTkOptionMenu(
             self.pinch_frame,
-            values=["Index", "Middle", "Ring", "Pinky"],
+            values=["Index", "Middle", "Ring", "Pinky", "Full-hand Semi-Pinch"],
             variable=self.pinch_finger_var,
             width=380
         )
@@ -640,7 +645,7 @@ class MappingDialog(ctk.CTkToplevel):
             }
         else:
             # Pinch Gesture
-            pinch_finger = self.pinch_finger_var.get().lower()
+            pinch_finger = self.pinch_finger_var.get().lower().replace("-", "_").replace(" ", "_")
             gesture_config = {
                 "type": "pinch",
                 "data": pinch_finger

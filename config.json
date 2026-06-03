@@ -32,16 +32,37 @@
       "path": "calc.exe"
     },
     {
-      "name": "Open brave",
-      "gesture": [
-        false,
-        false,
-        false,
-        false,
-        true
-      ],
+      "name": "Open Brave",
+      "gesture": {
+        "type": "pinch",
+        "data": "index"
+      },
       "action_type": "executable",
       "path": "C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe"
+    },
+    {
+      "name": "full hand brave",
+      "gesture": {
+        "type": "fingers",
+        "data": [
+          true,
+          true,
+          true,
+          true,
+          true
+        ]
+      },
+      "action_type": "executable",
+      "path": "C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe"
+    },
+    {
+      "name": "View All Windows",
+      "gesture": {
+        "type": "pinch",
+        "data": "full_hand_semi_pinch"
+      },
+      "action_type": "shortcut",
+      "path": "win+tab"
     }
   ]
 }
