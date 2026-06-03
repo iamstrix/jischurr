@@ -1,7 +1,7 @@
 {
   "settings": {
     "activation_mode": "hold_hotkey",
-    "hotkey": "caps lock",
+    "hotkey": "j",
     "continuous_tracking": false,
     "confidence_threshold": 0.5,
     "debounce_duration_ms": 1000
