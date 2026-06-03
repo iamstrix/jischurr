@@ -209,87 +209,93 @@ class GestureEngine:
         print("[TELEMETRY-ENGINE] _run_loop: Thread loop started")
         loop_count = 0
         while True:
-            loop_count += 1
-            # Thread-safe check for running status
-            with self.lock:
-                if not self.running:
-                    print(f"[TELEMETRY-ENGINE] _run_loop: stop signal received after {loop_count} ticks")
-                    break
-                active = self.camera_active
+            try:
+                loop_count += 1
+                # Thread-safe check for running status
+                with self.lock:
+                    if not self.running:
+                        print(f"[TELEMETRY-ENGINE] _run_loop: stop signal received after {loop_count} ticks")
+                        break
+                    active = self.camera_active
 
-            if not active:
-                if self.cap is not None or self.latest_frame is not None:
-                    print(f"[TELEMETRY-ENGINE] _run_loop (tick {loop_count}): Camera is inactive, releasing...")
-                    self._release_camera()
-                time.sleep(0.1)
-                continue
+                if not active:
+                    if self.cap is not None or self.latest_frame is not None:
+                        print(f"[TELEMETRY-ENGINE] _run_loop (tick {loop_count}): Camera is inactive, releasing...")
+                        self._release_camera()
+                    time.sleep(0.1)
+                    continue
 
-            # Initialize camera if not open
-            if self.cap is None:
-                print(f"[TELEMETRY-ENGINE] _run_loop (tick {loop_count}): Initializing cv2.VideoCapture(0, cv2.CAP_DSHOW)...")
-                t0 = time.perf_counter()
-                self.cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)  # CAP_DSHOW is faster on Windows
-                self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-                self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-                print(f"[TELEMETRY-ENGINE] _run_loop (tick {loop_count}): Camera initialized in {time.perf_counter()-t0:.6f}s")
+                # Initialize camera if not open
+                if self.cap is None:
+                    print(f"[TELEMETRY-ENGINE] _run_loop (tick {loop_count}): Initializing cv2.VideoCapture(0, cv2.CAP_DSHOW)...")
+                    t0 = time.perf_counter()
+                    self.cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)  # CAP_DSHOW is faster on Windows
+                    self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+                    self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+                    print(f"[TELEMETRY-ENGINE] _run_loop (tick {loop_count}): Camera initialized in {time.perf_counter()-t0:.6f}s")
 
-            if loop_count % 30 == 0:
-                print(f"[TELEMETRY-ENGINE] _run_loop (tick {loop_count}): Reading camera frame")
-
-            t_read_start = time.perf_counter()
-            success, frame = self.cap.read()
-            if not success:
-                print(f"[TELEMETRY-ENGINE] _run_loop (tick {loop_count}): Failed to capture frame from webcam. Read took {time.perf_counter()-t_read_start:.6f}s")
-                time.sleep(0.1)
-                continue
-
-            # Mirror the frame horizontally for a more natural preview
-            frame = cv2.flip(frame, 1)
-            h, w, _ = frame.shape
-
-            # Convert BGR to RGB for MediaPipe
-            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            
-            t_process_start = time.perf_counter()
-            results = self.hands.process(rgb_frame)
-            t_process_end = time.perf_counter()
-
-            if loop_count % 30 == 0:
-                print(f"[TELEMETRY-ENGINE] _run_loop (tick {loop_count}): MediaPipe process took {t_process_end-t_process_start:.6f}s")
-
-            detected_gesture = None
-            handedness_label = "Right"
-
-            if results.multi_hand_landmarks:
                 if loop_count % 30 == 0:
-                    print(f"[TELEMETRY-ENGINE] _run_loop (tick {loop_count}): Hand detected!")
-                for hand_landmarks, hand_class in zip(results.multi_hand_landmarks, results.multi_handedness):
-                    handedness_label = hand_class.classification[0].label
-                    
-                    # Draw landmarks on the OpenCV BGR frame
-                    self.mp_drawing.draw_landmarks(
-                        frame, 
-                        hand_landmarks, 
-                        self.mp_hands.HAND_CONNECTIONS,
-                        self.mp_drawing.DrawingSpec(color=(0, 255, 0), thickness=2, circle_radius=3),
-                        self.mp_drawing.DrawingSpec(color=(255, 0, 0), thickness=2)
-                    )
-                    
-                    # Classify the gesture
-                    detected_gesture = self.classify_gesture(hand_landmarks, handedness_label)
-                    break
+                    print(f"[TELEMETRY-ENGINE] _run_loop (tick {loop_count}): Reading camera frame")
 
-            # Handle triggers and debouncing
-            self.process_gesture_trigger(detected_gesture)
+                t_read_start = time.perf_counter()
+                success, frame = self.cap.read()
+                if not success:
+                    print(f"[TELEMETRY-ENGINE] _run_loop (tick {loop_count}): Failed to capture frame from webcam. Read took {time.perf_counter()-t_read_start:.6f}s")
+                    time.sleep(0.1)
+                    continue
 
-            # Store the frame and tracking details for the GUI
-            with self.lock:
-                self.latest_frame = frame
-                self.current_gesture = detected_gesture if detected_gesture else [False, False, False, False, False]
-                self.detected_handedness = handedness_label
+                # Mirror the frame horizontally for a more natural preview
+                frame = cv2.flip(frame, 1)
+                h, w, _ = frame.shape
 
-            # Limit thread loop speed (approx. 30 FPS)
-            time.sleep(0.033)
+                # Convert BGR to RGB for MediaPipe
+                rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                
+                t_process_start = time.perf_counter()
+                results = self.hands.process(rgb_frame)
+                t_process_end = time.perf_counter()
+
+                if loop_count % 30 == 0:
+                    print(f"[TELEMETRY-ENGINE] _run_loop (tick {loop_count}): MediaPipe process took {t_process_end-t_process_start:.6f}s")
+
+                detected_gesture = None
+                handedness_label = "Right"
+
+                if results.multi_hand_landmarks:
+                    if loop_count % 30 == 0:
+                        print(f"[TELEMETRY-ENGINE] _run_loop (tick {loop_count}): Hand detected!")
+                    for hand_landmarks, hand_class in zip(results.multi_hand_landmarks, results.multi_handedness):
+                        handedness_label = hand_class.classification[0].label
+                        
+                        # Draw landmarks on the OpenCV BGR frame
+                        self.mp_drawing.draw_landmarks(
+                            frame, 
+                            hand_landmarks, 
+                            self.mp_hands.HAND_CONNECTIONS,
+                            self.mp_drawing.DrawingSpec(color=(0, 255, 0), thickness=2, circle_radius=3),
+                            self.mp_drawing.DrawingSpec(color=(255, 0, 0), thickness=2)
+                        )
+                        
+                        # Classify the gesture
+                        detected_gesture = self.classify_gesture(hand_landmarks, handedness_label)
+                        break
+
+                # Handle triggers and debouncing
+                self.process_gesture_trigger(detected_gesture)
+
+                # Store the frame and tracking details for the GUI
+                with self.lock:
+                    self.latest_frame = frame
+                    self.current_gesture = detected_gesture if detected_gesture else [False, False, False, False, False]
+                    self.detected_handedness = handedness_label
+
+                # Limit thread loop speed (approx. 30 FPS)
+                time.sleep(0.033)
+            except Exception as e:
+                import traceback
+                print(f"[TELEMETRY-ENGINE] Exception in background thread loop: {e}")
+                traceback.print_exc()
+                time.sleep(1.0)
 
         self._release_camera()
         print("[TELEMETRY-ENGINE] _run_loop: Background thread loop exited")

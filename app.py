@@ -34,6 +34,10 @@ class App(ctk.CTk):
         # Build UI layout first so the window renders immediately
         self.setup_layout()
 
+        # Local Tkinter Key Bindings as a robust fallback when GUI is focused
+        self.bind("<KeyPress>", self.on_tkinter_key_press)
+        self.bind("<KeyRelease>", self.on_tkinter_key_release)
+
         # Force the window to render before starting background threads
         print("[TELEMETRY-GUI] Forcing layout render via update_idletasks")
         self.update_idletasks()
@@ -333,16 +337,16 @@ class App(ctk.CTk):
         self.after(33, self.update_loop)
 
     def on_key_press(self, key):
-        print(f"[TELEMETRY-GUI] Keyboard Press Detected: {key}")
+        print(f"[TELEMETRY-GUI] Global Keyboard Press Detected: {key}")
         if self._is_hotkey(key):
             self.hotkey_pressed = True
-            print(f"[TELEMETRY-GUI] Hotkey Pressed! Setting hotkey_pressed = {self.hotkey_pressed}")
+            print(f"[TELEMETRY-GUI] Global Hotkey Pressed! Setting hotkey_pressed = {self.hotkey_pressed}")
 
     def on_key_release(self, key):
-        print(f"[TELEMETRY-GUI] Keyboard Release Detected: {key}")
+        print(f"[TELEMETRY-GUI] Global Keyboard Release Detected: {key}")
         if self._is_hotkey(key):
             self.hotkey_pressed = False
-            print(f"[TELEMETRY-GUI] Hotkey Released! Setting hotkey_pressed = {self.hotkey_pressed}")
+            print(f"[TELEMETRY-GUI] Global Hotkey Released! Setting hotkey_pressed = {self.hotkey_pressed}")
 
     def _is_hotkey(self, key):
         hotkey_str = self.engine.settings.get("hotkey", "caps lock").lower().strip()
@@ -369,10 +373,58 @@ class App(ctk.CTk):
                 return key == target_key
             return False
             
+        # Robust check for alphanumeric keys:
         if hasattr(key, 'char') and key.char:
-            return key.char.lower() == hotkey_str
+            if key.char.lower() == hotkey_str:
+                return True
+        
+        # Fallback to string representation of the key
+        key_str = str(key).replace("'", "").lower().strip()
+        if key_str == hotkey_str:
+            return True
             
         return False
+
+    def on_tkinter_key_press(self, event):
+        print(f"[TELEMETRY-GUI] Tkinter KeyPress: keysym={event.keysym}, char={event.char}")
+        if self._is_tkinter_hotkey(event.keysym, event.char):
+            self.hotkey_pressed = True
+            print(f"[TELEMETRY-GUI] Tkinter Hotkey Pressed! Setting hotkey_pressed = {self.hotkey_pressed}")
+
+    def on_tkinter_key_release(self, event):
+        print(f"[TELEMETRY-GUI] Tkinter KeyRelease: keysym={event.keysym}, char={event.char}")
+        if self._is_tkinter_hotkey(event.keysym, event.char):
+            self.hotkey_pressed = False
+            print(f"[TELEMETRY-GUI] Tkinter Hotkey Released! Setting hotkey_pressed = {self.hotkey_pressed}")
+
+    def _is_tkinter_hotkey(self, keysym, char):
+        hotkey_str = self.engine.settings.get("hotkey", "caps lock").lower().strip()
+        
+        key_map = {
+            "caps lock": "caps_lock",
+            "caps_lock": "caps_lock",
+            "ctrl": "control_l",
+            "shift": "shift_l",
+            "alt": "alt_l",
+            "space": "space",
+        }
+        
+        target_keysym = key_map.get(hotkey_str)
+        if target_keysym:
+            keysym_lower = keysym.lower()
+            if hotkey_str == "ctrl" and "control" in keysym_lower:
+                return True
+            if hotkey_str == "shift" and "shift" in keysym_lower:
+                return True
+            if hotkey_str == "alt" and "alt" in keysym_lower:
+                return True
+            return keysym_lower == target_keysym
+            
+        if char:
+            if char.lower() == hotkey_str:
+                return True
+                
+        return keysym.lower() == hotkey_str
 
     def destroy(self):
         # Stop pynput listener
