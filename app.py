@@ -4,7 +4,7 @@ import customtkinter as ctk
 import cv2
 from PIL import Image, ImageTk
 import threading
-import keyboard
+from pynput import keyboard as keyboard_pynput
 import os
 import time
 
@@ -26,6 +26,16 @@ class App(ctk.CTk):
         # Initialize gesture engine
         self.engine = GestureEngine()
         self.engine.start()
+
+        # Thread-safe global hotkey state
+        self.hotkey_pressed = False
+        
+        # Start pynput keyboard listener
+        self.listener = keyboard_pynput.Listener(
+            on_press=self.on_key_press,
+            on_release=self.on_key_release
+        )
+        self.listener.start()
 
         # Build UI layout
         self.setup_layout()
@@ -235,11 +245,7 @@ class App(ctk.CTk):
     def update_loop(self):
         # 1. Check hotkey state to activate/deactivate camera stream
         hotkey = self.engine.settings.get("hotkey", "caps lock")
-        try:
-            is_active = keyboard.is_pressed(hotkey)
-        except Exception:
-            is_active = False
-
+        is_active = self.hotkey_pressed
         self.engine.set_camera_active(is_active)
 
         # 2. Update camera frame in the GUI
@@ -281,7 +287,51 @@ class App(ctk.CTk):
         # Schedule next update tick (approx 30 FPS)
         self.after(33, self.update_loop)
 
+    def on_key_press(self, key):
+        if self._is_hotkey(key):
+            self.hotkey_pressed = True
+
+    def on_key_release(self, key):
+        if self._is_hotkey(key):
+            self.hotkey_pressed = False
+
+    def _is_hotkey(self, key):
+        hotkey_str = self.engine.settings.get("hotkey", "caps lock").lower().strip()
+        
+        # Mapping common hotkeys to pynput Key objects
+        key_map = {
+            "caps lock": keyboard_pynput.Key.caps_lock,
+            "caps_lock": keyboard_pynput.Key.caps_lock,
+            "ctrl": keyboard_pynput.Key.ctrl_l,
+            "shift": keyboard_pynput.Key.shift_l,
+            "alt": keyboard_pynput.Key.alt_l,
+            "space": keyboard_pynput.Key.space,
+        }
+        
+        target_key = key_map.get(hotkey_str)
+        if target_key:
+            if hasattr(key, 'name'):
+                if hotkey_str == "ctrl" and "ctrl" in key.name:
+                    return True
+                if hotkey_str == "shift" and "shift" in key.name:
+                    return True
+                if hotkey_str == "alt" and "alt" in key.name:
+                    return True
+                return key == target_key
+            return False
+            
+        if hasattr(key, 'char') and key.char:
+            return key.char.lower() == hotkey_str
+            
+        return False
+
     def destroy(self):
+        # Stop pynput listener
+        if hasattr(self, 'listener'):
+            try:
+                self.listener.stop()
+            except Exception:
+                pass
         # Make sure engine stops when GUI is closed
         self.engine.stop()
         super().destroy()
