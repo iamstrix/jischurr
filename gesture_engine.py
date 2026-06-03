@@ -5,6 +5,7 @@ import time
 import subprocess
 import os
 import json
+import math
 import numpy as np
 
 class GestureEngine:
@@ -125,7 +126,7 @@ class GestureEngine:
                 self.latest_landmarks = None
 
     def calculate_distance(self, p1, p2):
-        return np.sqrt((p1.x - p2.x)**2 + (p1.y - p2.y)**2 + (p1.z - p2.z)**2)
+        return math.sqrt((p1.x - p2.x)**2 + (p1.y - p2.y)**2 + (p1.z - p2.z)**2)
 
     def classify_gesture(self, landmarks, handedness):
         """
@@ -302,17 +303,31 @@ class GestureEngine:
                         matched_mapping = mapping
                         break
                 elif m_type == "pinch":
-                    if current_gesture["pinches"].get(m_data) is True:
+                    if current_gesture["pinches"].get(m_data):
                         matched_mapping = mapping
                         break
 
         # Generate a unique key for the active gesture state for debouncing
         gesture_key = ""
-        if current_gesture["type"] == "pinch":
-            active_pinches = [k for k, v in current_gesture["pinches"].items() if v]
-            gesture_key = "pinch_" + "_".join(active_pinches)
+        if matched_mapping:
+            target_gesture = matched_mapping.get("gesture")
+            if isinstance(target_gesture, list):
+                gesture_key = "fingers_" + "_".join(map(str, target_gesture))
+            elif isinstance(target_gesture, dict):
+                m_type = target_gesture.get("type", "fingers")
+                m_data = target_gesture.get("data")
+                if m_type == "fingers":
+                    gesture_key = "fingers_" + "_".join(map(str, m_data))
+                else:
+                    gesture_key = f"pinch_{m_data}"
+            else:
+                gesture_key = "unknown"
         else:
-            gesture_key = "fingers_" + "_".join(map(str, current_gesture["fingers"]))
+            if current_gesture["type"] == "pinch":
+                active_pinches = [k for k, v in current_gesture["pinches"].items() if v]
+                gesture_key = "pinch_" + "_".join(active_pinches)
+            else:
+                gesture_key = "fingers_" + "_".join(map(str, current_gesture["fingers"]))
 
         if matched_mapping:
             # If it's a new gesture, start timer

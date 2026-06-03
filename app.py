@@ -481,7 +481,6 @@ class App(ctk.CTk):
                 self.listener.stop()
             except Exception:
                 pass
-        # Make sure engine stops when GUI is closed
         self.engine.stop()
         super().destroy()
 
@@ -492,7 +491,7 @@ class MappingDialog(ctk.CTkToplevel):
         
         self.callback = callback
         self.title("Add Gesture Action")
-        self.geometry("450x520")
+        self.geometry("450x590")
         self.resizable(False, False)
         
         # Keep window on top
@@ -518,12 +517,26 @@ class MappingDialog(ctk.CTkToplevel):
         self.name_entry = ctk.CTkEntry(self, placeholder_text="Enter action name", width=410)
         self.name_entry.grid(row=2, column=0, padx=20, pady=(0, 15), sticky="w")
 
-        # --- ACTION PATH ---
+        # --- ACTION TYPE ---
+        self.action_type_lbl = ctk.CTkLabel(self, text="Action Type", font=ctk.CTkFont(size=12, weight="bold"))
+        self.action_type_lbl.grid(row=3, column=0, padx=20, pady=(5, 2), sticky="w")
+
+        self.action_type_var = tk.StringVar(value="Open Program / File")
+        self.action_type_btn = ctk.CTkSegmentedButton(
+            self,
+            values=["Open Program / File", "Keyboard Shortcut"],
+            variable=self.action_type_var,
+            command=self.toggle_action_type,
+            width=410
+        )
+        self.action_type_btn.grid(row=4, column=0, padx=20, pady=(0, 15), sticky="w")
+
+        # --- ACTION PATH / SHORTCUT ---
         self.path_lbl = ctk.CTkLabel(self, text="Executable Path or File Shortcut", font=ctk.CTkFont(size=12, weight="bold"))
-        self.path_lbl.grid(row=3, column=0, padx=20, pady=(5, 2), sticky="w")
+        self.path_lbl.grid(row=5, column=0, padx=20, pady=(5, 2), sticky="w")
 
         self.path_frame = ctk.CTkFrame(self, fg_color="transparent")
-        self.path_frame.grid(row=4, column=0, padx=20, pady=(0, 15), sticky="ew")
+        self.path_frame.grid(row=6, column=0, padx=20, pady=(0, 15), sticky="ew")
         self.path_frame.grid_columnconfigure(0, weight=1)
 
         self.path_entry = ctk.CTkEntry(self.path_frame, placeholder_text="C:/Windows/System32/notepad.exe", width=310)
@@ -534,7 +547,7 @@ class MappingDialog(ctk.CTkToplevel):
 
         # --- GESTURE SELECTOR ---
         self.gesture_lbl = ctk.CTkLabel(self, text="Gesture Definition", font=ctk.CTkFont(size=12, weight="bold"))
-        self.gesture_lbl.grid(row=5, column=0, padx=20, pady=(5, 5), sticky="w")
+        self.gesture_lbl.grid(row=7, column=0, padx=20, pady=(5, 5), sticky="w")
 
         self.gesture_type_var = tk.StringVar(value="Fingers Extended")
         self.segmented_btn = ctk.CTkSegmentedButton(
@@ -544,11 +557,11 @@ class MappingDialog(ctk.CTkToplevel):
             command=self.toggle_gesture_type,
             width=410
         )
-        self.segmented_btn.grid(row=6, column=0, padx=20, pady=(0, 10), sticky="w")
+        self.segmented_btn.grid(row=8, column=0, padx=20, pady=(0, 10), sticky="w")
 
         # Options Container Frame
         self.options_container = ctk.CTkFrame(self, fg_color="transparent", width=410, height=80)
-        self.options_container.grid(row=7, column=0, padx=20, pady=(0, 15), sticky="ew")
+        self.options_container.grid(row=9, column=0, padx=20, pady=(0, 15), sticky="ew")
         self.options_container.grid_columnconfigure(0, weight=1)
         self.options_container.grid_propagate(False)
 
@@ -582,7 +595,7 @@ class MappingDialog(ctk.CTkToplevel):
 
         # --- BUTTONS ---
         self.btn_frame = ctk.CTkFrame(self, fg_color="transparent")
-        self.btn_frame.grid(row=8, column=0, padx=20, pady=(10, 20), sticky="e")
+        self.btn_frame.grid(row=10, column=0, padx=20, pady=(10, 20), sticky="e")
 
         self.cancel_btn = ctk.CTkButton(
             self.btn_frame, 
@@ -601,6 +614,16 @@ class MappingDialog(ctk.CTkToplevel):
             command=self.save_action
         )
         self.save_btn.grid(row=0, column=1)
+
+    def toggle_action_type(self, val):
+        if val == "Open Program / File":
+            self.path_lbl.configure(text="Executable Path or File Shortcut")
+            self.path_entry.configure(placeholder_text="C:/Windows/System32/notepad.exe")
+            self.browse_btn.grid(row=0, column=1, padx=(10, 0))
+        else:
+            self.path_lbl.configure(text="Keyboard Shortcut (e.g. win+tab, ctrl+shift+esc)")
+            self.path_entry.configure(placeholder_text="win+tab")
+            self.browse_btn.grid_remove()
 
     def toggle_gesture_type(self, val):
         if val == "Fingers Extended":
@@ -625,12 +648,13 @@ class MappingDialog(ctk.CTkToplevel):
         name = self.name_entry.get().strip()
         path = self.path_entry.get().strip()
         g_type = self.gesture_type_var.get()
+        a_type = self.action_type_var.get()
 
         if not name:
             messagebox.showerror("Error", "Please enter a name for the action.")
             return
         if not path:
-            messagebox.showerror("Error", "Please provide a valid file/program path.")
+            messagebox.showerror("Error", "Please provide a valid path or shortcut.")
             return
 
         gesture_config = {}
@@ -651,10 +675,12 @@ class MappingDialog(ctk.CTkToplevel):
                 "data": pinch_finger
             }
 
+        action_type = "shortcut" if a_type == "Keyboard Shortcut" else "executable"
+
         new_mapping = {
             "name": name,
             "gesture": gesture_config,
-            "action_type": "executable",
+            "action_type": action_type,
             "path": path
         }
         
