@@ -23,13 +23,26 @@ class App(ctk.CTk):
         self.geometry("1000x650")
         self.resizable(False, False)
 
-        # Initialize gesture engine
+        # Initialize gesture engine (load config only, don't start yet)
         self.engine = GestureEngine()
-        self.engine.start()
 
         # Thread-safe global hotkey state
         self.hotkey_pressed = False
-        
+
+        # Build UI layout first so the window renders immediately
+        self.setup_layout()
+
+        # Force the window to render before starting background threads
+        self.update_idletasks()
+
+        # Defer engine and listener startup to after the window is visible
+        self.after(100, self._start_background_services)
+
+    def _start_background_services(self):
+        """Start engine and keyboard listener after the window is visible."""
+        # Start the gesture engine background thread
+        self.engine.start()
+
         # Start pynput keyboard listener
         self.listener = keyboard_pynput.Listener(
             on_press=self.on_key_press,
@@ -37,10 +50,7 @@ class App(ctk.CTk):
         )
         self.listener.start()
 
-        # Build UI layout
-        self.setup_layout()
-
-        # Start GUI update loop
+        # Start the GUI update loop
         self.update_loop()
 
     def setup_layout(self):
