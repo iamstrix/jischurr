@@ -469,5 +469,19 @@ class MappingDialog(ctk.CTkToplevel):
 
 
 if __name__ == "__main__":
+    import signal
+
     app = App()
+
+    # Allow Ctrl+C from terminal to close the app
+    def on_sigint(sig, frame):
+        app.destroy()
+
+    signal.signal(signal.SIGINT, on_sigint)
+
+    # Tkinter swallows Ctrl+C unless we periodically yield to Python's signal handler
+    def check_signals():
+        app.after(500, check_signals)
+
+    check_signals()
     app.mainloop()
