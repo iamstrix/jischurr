@@ -1,0 +1,5 @@
+customtkinter==5.2.2
+opencv-python==4.9.0.80
+mediapipe==0.10.14
+keyboard==0.13.5
+Pillow==10.3.0

@@ -1,0 +1,23 @@
+{
+  "settings": {
+    "activation_mode": "hold_hotkey",
+    "hotkey": "caps lock",
+    "continuous_tracking": false,
+    "confidence_threshold": 0.5,
+    "debounce_duration_ms": 1000
+  },
+  "mappings": [
+    {
+      "name": "Open Notepad (Index Finger)",
+      "gesture": [false, true, false, false, false],
+      "action_type": "executable",
+      "path": "notepad.exe"
+    },
+    {
+      "name": "Open Calculator (Index + Middle)",
+      "gesture": [false, true, true, false, false],
+      "action_type": "executable",
+      "path": "calc.exe"
+    }
+  ]
+}
