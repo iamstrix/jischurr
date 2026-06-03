@@ -12,3 +12,6 @@ ENV/
 # OS files
 .DS_Store
 Thumbs.db
+
+# AI session logs
+ai/
