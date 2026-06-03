@@ -27,7 +27,7 @@ class GestureEngine:
         # Threading and camera control
         self.lock = threading.RLock()
         self.running = False
-        self.camera_active = False
+        self.analysis_active = False
         self.thread = None
         self.cap = None
 
@@ -93,11 +93,11 @@ class GestureEngine:
             print("[TELEMETRY-ENGINE] Background thread joined or timed out")
         self._release_camera()
 
-    def set_camera_active(self, active):
+    def set_analysis_active(self, active):
         with self.lock:
-            if self.camera_active != active:
-                print(f"[TELEMETRY-ENGINE] set_camera_active: changing state from {self.camera_active} to {active}")
-                self.camera_active = active
+            if self.analysis_active != active:
+                print(f"[TELEMETRY-ENGINE] set_analysis_active: changing state from {self.analysis_active} to {active}")
+                self.analysis_active = active
 
     def _release_camera(self):
         # We release the camera and clear references.
@@ -216,14 +216,7 @@ class GestureEngine:
                     if not self.running:
                         print(f"[TELEMETRY-ENGINE] _run_loop: stop signal received after {loop_count} ticks")
                         break
-                    active = self.camera_active
-
-                if not active:
-                    if self.cap is not None or self.latest_frame is not None:
-                        print(f"[TELEMETRY-ENGINE] _run_loop (tick {loop_count}): Camera is inactive, releasing...")
-                        self._release_camera()
-                    time.sleep(0.1)
-                    continue
+                    run_analysis = self.analysis_active
 
                 # Initialize camera if not open
                 if self.cap is None:
@@ -246,42 +239,45 @@ class GestureEngine:
 
                 # Mirror the frame horizontally for a more natural preview
                 frame = cv2.flip(frame, 1)
-                h, w, _ = frame.shape
-
-                # Convert BGR to RGB for MediaPipe
-                rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                
-                t_process_start = time.perf_counter()
-                results = self.hands.process(rgb_frame)
-                t_process_end = time.perf_counter()
-
-                if loop_count % 30 == 0:
-                    print(f"[TELEMETRY-ENGINE] _run_loop (tick {loop_count}): MediaPipe process took {t_process_end-t_process_start:.6f}s")
 
                 detected_gesture = None
                 handedness_label = "Right"
 
-                if results.multi_hand_landmarks:
-                    if loop_count % 30 == 0:
-                        print(f"[TELEMETRY-ENGINE] _run_loop (tick {loop_count}): Hand detected!")
-                    for hand_landmarks, hand_class in zip(results.multi_hand_landmarks, results.multi_handedness):
-                        handedness_label = hand_class.classification[0].label
-                        
-                        # Draw landmarks on the OpenCV BGR frame
-                        self.mp_drawing.draw_landmarks(
-                            frame, 
-                            hand_landmarks, 
-                            self.mp_hands.HAND_CONNECTIONS,
-                            self.mp_drawing.DrawingSpec(color=(0, 255, 0), thickness=2, circle_radius=3),
-                            self.mp_drawing.DrawingSpec(color=(255, 0, 0), thickness=2)
-                        )
-                        
-                        # Classify the gesture
-                        detected_gesture = self.classify_gesture(hand_landmarks, handedness_label)
-                        break
+                if run_analysis:
+                    # Convert BGR to RGB for MediaPipe
+                    rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                    
+                    t_process_start = time.perf_counter()
+                    results = self.hands.process(rgb_frame)
+                    t_process_end = time.perf_counter()
 
-                # Handle triggers and debouncing
-                self.process_gesture_trigger(detected_gesture)
+                    if loop_count % 30 == 0:
+                        print(f"[TELEMETRY-ENGINE] _run_loop (tick {loop_count}): MediaPipe process took {t_process_end-t_process_start:.6f}s")
+
+                    if results.multi_hand_landmarks:
+                        if loop_count % 30 == 0:
+                            print(f"[TELEMETRY-ENGINE] _run_loop (tick {loop_count}): Hand detected!")
+                        for hand_landmarks, hand_class in zip(results.multi_hand_landmarks, results.multi_handedness):
+                            handedness_label = hand_class.classification[0].label
+                            
+                            # Draw landmarks on the OpenCV BGR frame
+                            self.mp_drawing.draw_landmarks(
+                                frame, 
+                                hand_landmarks, 
+                                self.mp_hands.HAND_CONNECTIONS,
+                                self.mp_drawing.DrawingSpec(color=(0, 255, 0), thickness=2, circle_radius=3),
+                                self.mp_drawing.DrawingSpec(color=(255, 0, 0), thickness=2)
+                            )
+                            
+                            # Classify the gesture
+                            detected_gesture = self.classify_gesture(hand_landmarks, handedness_label)
+                            break
+
+                    # Handle triggers and debouncing
+                    self.process_gesture_trigger(detected_gesture)
+                else:
+                    # Reset triggers when analysis is inactive so it doesn't execute a gesture
+                    self.process_gesture_trigger(None)
 
                 # Store the frame and tracking details for the GUI
                 with self.lock:

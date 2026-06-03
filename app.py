@@ -267,13 +267,13 @@ class App(ctk.CTk):
         if verbose:
             print(f"[TELEMETRY-GUI] update_loop: tick {self.update_count}, hotkey_pressed={self.hotkey_pressed}")
 
-        # 1. Check hotkey state to activate/deactivate camera stream
+        # 1. Update hotkey state for gesture analysis
         hotkey = self.engine.settings.get("hotkey", "caps lock")
         is_active = self.hotkey_pressed
         
         if verbose:
-            print(f"[TELEMETRY-GUI] update_loop (tick {self.update_count}): Calling set_camera_active({is_active})")
-        self.engine.set_camera_active(is_active)
+            print(f"[TELEMETRY-GUI] update_loop (tick {self.update_count}): Calling set_analysis_active({is_active})")
+        self.engine.set_analysis_active(is_active)
 
         # 2. Update camera frame in the GUI
         frame = None
@@ -292,9 +292,9 @@ class App(ctk.CTk):
             if self.engine.latest_frame is not None:
                 frame = self.engine.latest_frame.copy()
             current_gesture = self.engine.current_gesture
-            is_monitoring = self.engine.camera_active
+            is_monitoring = self.engine.analysis_active
 
-        if is_monitoring and frame is not None:
+        if frame is not None:
             if verbose:
                 print(f"[TELEMETRY-GUI] update_loop (tick {self.update_count}): Camera active, rendering frame...")
             t_render = time.perf_counter()
@@ -311,13 +311,13 @@ class App(ctk.CTk):
                 print(f"[TELEMETRY-GUI] update_loop (tick {self.update_count}): Frame render took {time.perf_counter()-t_render:.6f}s")
         else:
             if verbose:
-                print(f"[TELEMETRY-GUI] update_loop (tick {self.update_count}): Camera idle, rendering placeholder")
-            # Display Idle screen
+                print(f"[TELEMETRY-GUI] update_loop (tick {self.update_count}): Camera frame is None, rendering offline state")
+            # Display offline screen
             self.camera_label.configure(
                 image=None, 
-                text=f"CAMERA IDLE\n\nHOLD [ {hotkey.upper()} ] TO CAPTURE GESTURES",
+                text="WEBCAM OFFLINE OR INITIALIZING...",
                 font=ctk.CTkFont(size=16, weight="bold"),
-                text_color="#4b5563"
+                text_color="#ef4444"
             )
 
         # 3. Update hand finger indicators
